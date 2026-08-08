@@ -352,20 +352,12 @@ function hasTTS(){
 }
 /* ---- 预录音频引擎（离线语音包，任何浏览器都能出声；含全部 179 词 + 全部同义词） ---- */
 let _audioEl = null;
-let audioScriptsDone = false;
-function loadAudioScripts(cb){
-  if(audioScriptsDone){ if(cb) cb(); return; }
-  const total = window.AUDIO_TOTAL || 0;
-  if(!total){ audioScriptsDone = true; if(cb) cb(); return; }
-  let remaining = total;
-  for(let i=0;i<total;i++){
-    const s = document.createElement('script');
-    s.src = 'audio_' + i + '.js';
-    s.onload = s.onerror = () => { if(--remaining === 0){ audioScriptsDone = true; if(cb) cb(); } };
-    (document.head || document.body).appendChild(s);
-  }
+function loadAudioChunk(idx, cb){
+  const s = document.createElement('script');
+  s.src = 'audio_' + idx + '.js';
+  s.onload = s.onerror = () => { if(cb) cb(); };
+  (document.head || document.body).appendChild(s);
 }
-function getAudioURL(text){ const A = window.AUDIO || {}; return A[text] || null; }
 function playDataURL(url, rate){
   try{
     if(typeof Audio === 'undefined'){ toast('当前环境不支持音频播放'); return; }
@@ -377,12 +369,15 @@ function playDataURL(url, rate){
   }catch(e){ toast('音频播放失败'); }
 }
 function playEmbedded(text, rate){
-  const url = getAudioURL(text);
-  if(url){ playDataURL(url, rate); return true; }
-  if((window.AUDIO_TOTAL||0) > 0){
-    toast('正在加载语音包…');
-    loadAudioScripts(()=>{
-      const u2 = getAudioURL(text);
+  const A = window.AUDIO || {};
+  if(A[text]){ playDataURL(A[text], rate); return true; }
+  const total = window.AUDIO_TOTAL || 0;
+  const map = window.AUDIO_MAP || {};
+  const idx = map[text];
+  if(total > 0 && idx !== undefined && idx !== null){
+    toast('正在加载语音…');
+    loadAudioChunk(idx, ()=>{
+      const u2 = (window.AUDIO || {})[text];
       if(u2) playDataURL(u2, rate);
       else toast('该词暂无预录音频');
     });
@@ -396,13 +391,15 @@ function speak(text, rate){
     if(!playEmbedded(text, rate)) toast('该词暂无预录音频');
     return;
   }
-  const sysOk = hasTTS();
-  if(engine === 'system' && !sysOk){ toast('当前浏览器不支持系统语音，请在设置中切换到「预录音频」'); return; }
-  if(sysOk){
-    speakSystem(text, rate);
-  } else {
-    if(!playEmbedded(text, rate)) toast('当前浏览器不支持语音朗读，且该词无预录音频');
+  if(engine === 'system'){
+    if(hasTTS()) speakSystem(text, rate);
+    else toast('当前浏览器不支持系统语音，请切换到「预录音频」');
+    return;
   }
+  // auto：预录音频优先（<audio> 可反复点击重播，不受 Safari 语音 bug 影响）；包内没有的词才用系统语音
+  if(playEmbedded(text, rate)) return;
+  if(hasTTS()){ speakSystem(text, rate); return; }
+  toast('当前浏览器不支持语音朗读');
 }
 function speakSystem(text, rate){
   if(!('speechSynthesis' in window)){ toast('当前浏览器不支持语音朗读'); return; }
@@ -1479,12 +1476,12 @@ function renderSettings(){
         <button class="toggle ${s.sound?'on':''}" id="setSound" aria-label="答题音效"></button></div>
       <div class="set-row"><label>发音方式</label>
         <select id="setEngine" style="max-width:52%">
-          <option value="auto" ${s.engine==='auto'?'selected':''}>自动（推荐）</option>
+          <option value="auto" ${s.engine==='auto'?'selected':''}>自动（预录音频优先，可反复朗读）</option>
           <option value="system" ${s.engine==='system'?'selected':''}>系统语音</option>
-          <option value="embedded" ${s.engine==='embedded'?'selected':''}>预录音频（离线包）</option>
+          <option value="embedded" ${s.engine==='embedded'?'selected':''}>预录音频</option>
         </select>
       </div>
-      <div class="muted" style="font-size:12px;line-height:1.7">如果某个浏览器点 🔊 没声音（例如内置测试浏览器），请把发音方式切到「预录音频」——程序内置了全部 179 词 + 所有同义词的英音录音，离线也能用。</div>
+      <div class="muted" style="font-size:12px;line-height:1.7">内置了全部 179 词 + 所有同义词的英音录音，用 <audio> 播放，<b>每次点击都能重复听到声音</b>（Safari 的系统语音有"只能读一次"的 bug，所以默认用预录音频）。</div>
     </div>
     <div class="section-title">训练</div>
     <div class="card">
